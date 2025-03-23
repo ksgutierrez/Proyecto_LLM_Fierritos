@@ -7,52 +7,52 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "RAG SaaS"
-    VERSION: str = "1.0.0"
+    PROJECT_NAME: str = "Fierritos RAG"
+    VERSION: str = "2.0.0"
     API_V1_STR: str = "/api/v1"
     
-    POSTGRES_SERVER: str = "localhost"
+    # Database settings
+    POSTGRES_SERVER: str = os.getenv("POSTGRES_SERVER", "localhost")
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
-    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "Leuname9991gge")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "password")
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "ragsaas")
     SQLALCHEMY_DATABASE_URI: Optional[str] = None
     
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "aja")
+    # Authentication
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "secret_key_change_in_prod")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
+    # Redis
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
     
-    # Configuración de Ollama
-    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama2")
-    OLLAMA_TIMEOUT: int = int(os.getenv("OLLAMA_TIMEOUT", "30"))
-    OLLAMA_MAX_RETRIES: int = int(os.getenv("OLLAMA_MAX_RETRIES", "3"))
-    OLLAMA_RETRY_DELAY: int = int(os.getenv("OLLAMA_RETRY_DELAY", "1"))
+    # Configuración de Google Cloud
+    GOOGLE_PROJECT_ID: str = os.getenv("GOOGLE_PROJECT_ID", "")
+    GOOGLE_LOCATION: str = os.getenv("GOOGLE_LOCATION", "us-central1")
+    GOOGLE_MODEL_ID: str = os.getenv("GOOGLE_MODEL_ID", "flash")
+    GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    
+    # GCP Compute Engine
+    GCP_ZONE: str = os.getenv("GCP_ZONE", "us-central1-a")
+    GCP_REGION: str = os.getenv("GCP_REGION", "us-central1")
     
     # Frontend Configuration
-    FRONTEND_URL: str = "http://localhost:8550"
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:8001")
     
     # CORS Configuration
     CORS_ORIGINS: List[str] = [
-        "http://localhost:8550",
-        "http://localhost:8000"
+        "http://localhost:8001",
+        "http://localhost:8000",
+        "http://localhost:8050"
     ]
-
-    @property
-    def get_ollama_config(self) -> dict:
-        try:
-            return {
-                "base_url": self.OLLAMA_BASE_URL,
-                "model": self.OLLAMA_MODEL,
-                "timeout": self.OLLAMA_TIMEOUT,
-                "max_retries": self.OLLAMA_MAX_RETRIES,
-                "retry_delay": self.OLLAMA_RETRY_DELAY
-            }
-        except Exception as e:
-            print(f"Error en la configuración de Ollama: {str(e)}")
-            raise
+    
+    # Document processing
+    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "uploads")
+    MAX_UPLOAD_SIZE: int = int(os.getenv("MAX_UPLOAD_SIZE", "10485760"))  # 10MB
+    
+    # ChromaDB settings
+    CHROMADB_DIR: str = os.getenv("CHROMADB_DIR", "vector_db")
 
     class Config:
         env_file = ".env"

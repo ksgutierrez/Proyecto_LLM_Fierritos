@@ -1,35 +1,56 @@
 # app/services/llm_service.py
-from langchain_community.llms import Ollama
-from typing import List
+import os
+from typing import List, Dict, Any
 import json
+import requests
 from fastapi import HTTPException
 from app.core.config import settings
-import os
+from google.cloud import aiplatform
+from google.oauth2 import service_account
 
 class LLMService:
     def __init__(self):
         try:
-            base_url = os.environ.get("OLLAMA_BASE_URL", settings.OLLAMA_BASE_URL)
-            model = os.environ.get("OLLAMA_MODEL", settings.OLLAMA_MODEL)
+            # Configurar credenciales para la API de Google
+            self.project_id = os.environ.get("GOOGLE_PROJECT_ID", settings.GOOGLE_PROJECT_ID)
+            self.location = os.environ.get("GOOGLE_LOCATION", settings.GOOGLE_LOCATION)
+            self.model_id = os.environ.get("GOOGLE_MODEL_ID", settings.GOOGLE_MODEL_ID)
             
-            print(f"Conectando a Ollama en: {base_url} con modelo: {model}")
+            # Inicializar cliente de Vertex AI si se proporcionan credenciales
+            if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+                credentials = service_account.Credentials.from_service_account_file(
+                    os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+                )
+                self.client = aiplatform.gapic.PredictionServiceClient(credentials=credentials)
+            else:
+                self.client = aiplatform.gapic.PredictionServiceClient()
+                
+            # Endpoint para el modelo
+            self.endpoint = f"projects/{self.project_id}/locations/{self.location}/publishers/google/models/{self.model_id}"
             
-            self.llm = Ollama(
-                base_url=base_url,
-                model=model
-            )
+            print(f"Conectando a Google Flash API en: {self.endpoint}")
             
         except Exception as e:
-            print(f"Error de inicialización de Ollama: {str(e)}")
+            print(f"Error de inicialización de Google Flash API: {str(e)}")
             raise HTTPException(
                 status_code=503,
-                detail=f"No se pudo conectar al servicio LLM. Asegúrate de que Ollama esté corriendo. Error: {str(e)}"
+                detail=f"No se pudo conectar al servicio LLM. Error: {str(e)}"
             )
 
     async def generate_summary(self, content: str) -> str:
+        """Genera un resumen del contenido utilizando Google Flash."""
         try:
-            prompt = f"Genera un resumen del siguiente texto:\n{content}"
-            return self.llm.invoke(prompt)
+            prompt = f"""Genera un resumen conciso del siguiente texto. El resumen debe incluir los puntos clave, 
+            pero ser significativamente más corto que el texto original.
+            
+            TEXTO A RESUMIR:
+            {content}
+            
+            RESUMEN:"""
+            
+            response = self._call_flash_api(prompt, temperature=0.2, max_tokens=250)
+            return response
+            
         except Exception as e:
             print(f"Error generando resumen: {str(e)}")
             raise HTTPException(
@@ -38,24 +59,102 @@ class LLMService:
             )
 
     async def answer_question(self, context: str, question: str) -> str:
+        """Responde una pregunta basada en el contexto proporcionado."""
         try:
-            prompt = f"Basándote en el siguiente contexto:\n{context}\n\nResponde esta pregunta:\n{question}"
-            return self.llm.invoke(prompt)
+            prompt = f"""Responde la siguiente pregunta utilizando solo la información proporcionada en el CONTEXTO.
+            Si la respuesta no está en el CONTEXTO, indica que no puedes responder basado en la información proporcionada.
+            
+            CONTEXTO:
+            {context}
+            
+            PREGUNTA:
+            {question}
+            
+            RESPUESTA:"""
+            
+            response = self._call_flash_api(prompt, temperature=0.3, max_tokens=500)
+            return response
+            
         except Exception as e:
             print(f"Error respondiendo pregunta: {str(e)}")
             raise HTTPException(
                 status_code=503,
                 detail=f"Error al responder la pregunta: {str(e)}"
             )
+            
+    async def answer_question_with_sources(self, question: str, relevant_chunks: List[Dict[str, Any]]) -> str:
+        """Responde una pregunta utilizando trozos relevantes de documentos con citación de fuentes."""
+        try:
+            context = ""
+            sources = []
+            
+            # Preparar los chunks y sus fuentes
+            for i, chunk in enumerate(relevant_chunks):
+                context += f"[CHUNK {i+1}]: {chunk['text']}\n\n"
+                sources.append(f"[CHUNK {i+1}]: {chunk['metadata']['source']}, página {chunk['metadata'].get('page', 'N/A')}")
+            
+            prompt = f"""Responde la siguiente pregunta utilizando solo la información proporcionada en los CHUNKS.
+            Si la respuesta no está en los CHUNKS, indica que no puedes responder basado en la información proporcionada.
+            Cita los números de chunk que utilizaste para construir tu respuesta (ejemplo: [CHUNK 1], [CHUNK 3]).
+            
+            CHUNKS:
+            {context}
+            
+            PREGUNTA:
+            {question}
+            
+            RESPUESTA:"""
+            
+            response = self._call_flash_api(prompt, temperature=0.3, max_tokens=800)
+            
+            # Añadir las fuentes al final de la respuesta
+            if sources:
+                response += "\n\nFuentes:\n" + "\n".join(sources)
+                
+            return response
+            
+        except Exception as e:
+            print(f"Error respondiendo pregunta con fuentes: {str(e)}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Error al responder la pregunta: {str(e)}"
+            )
 
-    async def generate_explanations(self, content: str, concepts: List[str]) -> str:
-        prompt = f"""For these concepts, provide explanations from the content:
-
-Content:
-{content}
-
-Concepts:
-{json.dumps(concepts, indent=2)}
-
-Explanations:"""
-        return self.llm.invoke(prompt)
+    def _call_flash_api(self, prompt: str, temperature: float = 0.7, max_tokens: int = 500) -> str:
+        """Realiza la llamada a la API de Google Flash."""
+        try:
+            instance = {
+                "prompt": prompt,
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+                "top_p": 0.8,
+                "top_k": 40
+            }
+            
+            instances = [instance]
+            
+            response = self.client.predict(
+                endpoint=self.endpoint,
+                instances=[instances]
+            )
+            
+            # Extraer el texto de la respuesta
+            predictions = response.predictions
+            if predictions and len(predictions) > 0:
+                result = predictions[0]
+                # Dependiendo de la estructura de la respuesta, podría necesitar ajustes
+                if isinstance(result, dict) and "content" in result:
+                    return result["content"]
+                elif isinstance(result, str):
+                    return result
+                else:
+                    return str(result)
+            else:
+                return "No se pudo generar una respuesta."
+                
+        except Exception as e:
+            print(f"Error llamando a Flash API: {str(e)}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Error comunicándose con Flash API: {str(e)}"
+            )
