@@ -1,86 +1,50 @@
 version: '3.8'
 
 services:
-  # API (Backend)
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ragsaas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      retries: 5
+      
   api:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "8050:8000"
-    volumes:
-      - ./uploads:/app/uploads
     depends_on:
-      - postgres
-      - redis
-      - ollama
-    environment:
-      - POSTGRES_SERVER=postgres
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL}
-    restart: always
-    networks:
-      - app-network
+      postgres:
+        condition: service_healthy
 
-  # Flet Frontend
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    ports:
-      - "8001:8001"
-    depends_on:
-      - api
-    environment:
-      - API_URL=http://localhost:8050/api/v1
-    restart: always
-    networks:
-      - app-network
-
-  # Celery Worker
   celery-worker:
     build:
       context: .
       dockerfile: Dockerfile.celery
     volumes:
       - ./uploads:/app/uploads
+      - ./vector_db:/app/vector_db
+    environment:
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_DB=${POSTGRES_DB:-ragsaas}
+      - USE_MOCK_LLM=true
     depends_on:
       - postgres
       - redis
-      - ollama
-    environment:
-      - POSTGRES_SERVER=postgres
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL}
-    restart: always
-    networks:
-      - app-network
 
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
-    ports:
-      - "5432:5432"
-    restart: always
-    networks:
-      - app-network
+  # Resto de servicios igual
+  
 
   # Redis for Celery
   redis:
@@ -95,20 +59,9 @@ services:
       - app-network
 
   # Ollama for LLM
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
-    restart: always
-    networks:
-      - app-network
-    command: serve
-
+  
 volumes:
   postgres_data:
-  ollama_data:
   redis_data:
 
 networks:

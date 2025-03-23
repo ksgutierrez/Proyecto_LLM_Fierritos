@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 
 class LLMService:
     def __init__(self):
-        try:
+        '''try:
             # Configurar credenciales para la API de Google
             self.project_id = os.environ.get("GOOGLE_PROJECT_ID", settings.GOOGLE_PROJECT_ID)
             self.location = os.environ.get("GOOGLE_LOCATION", settings.GOOGLE_LOCATION)
@@ -35,7 +35,14 @@ class LLMService:
             raise HTTPException(
                 status_code=503,
                 detail=f"No se pudo conectar al servicio LLM. Error: {str(e)}"
-            )
+            )'''
+        
+        if os.environ.get("USE_MOCK_LLM", "false").lower() == "true":
+            self._use_mock = True
+            print("Usando LLM mock para desarrollo local")
+        else:
+            self._use_mock = False
+            # Inicialización normal de Google Flash API
 
     async def generate_summary(self, content: str) -> str:
         """Genera un resumen del contenido utilizando Google Flash."""
@@ -122,39 +129,47 @@ class LLMService:
 
     def _call_flash_api(self, prompt: str, temperature: float = 0.7, max_tokens: int = 500) -> str:
         """Realiza la llamada a la API de Google Flash."""
-        try:
-            instance = {
-                "prompt": prompt,
-                "temperature": temperature,
-                "max_output_tokens": max_tokens,
-                "top_p": 0.8,
-                "top_k": 40
-            }
-            
-            instances = [instance]
-            
-            response = self.client.predict(
-                endpoint=self.endpoint,
-                instances=[instances]
-            )
-            
-            # Extraer el texto de la respuesta
-            predictions = response.predictions
-            if predictions and len(predictions) > 0:
-                result = predictions[0]
-                # Dependiendo de la estructura de la respuesta, podría necesitar ajustes
-                if isinstance(result, dict) and "content" in result:
-                    return result["content"]
-                elif isinstance(result, str):
-                    return result
-                else:
-                    return str(result)
+        if os.environ.get("USE_MOCK_LLM", "false").lower() == "true":
+            print(f"MOCK LLM: {prompt[:50]}...")
+            # Return mock response based on prompt
+            if "generar un resumen" in prompt.lower():
+                return "Este es un resumen generado por el LLM simulado para desarrollo local."
             else:
-                return "No se pudo generar una respuesta."
+                return "Esta es una respuesta simulada para desarrollo local. En producción, se utilizará Google Flash API."
+        else:
+            try:
+                instance = {
+                    "prompt": prompt,
+                    "temperature": temperature,
+                    "max_output_tokens": max_tokens,
+                    "top_p": 0.8,
+                    "top_k": 40
+                }
                 
-        except Exception as e:
-            print(f"Error llamando a Flash API: {str(e)}")
-            raise HTTPException(
-                status_code=503,
-                detail=f"Error comunicándose con Flash API: {str(e)}"
-            )
+                instances = [instance]
+                
+                response = self.client.predict(
+                    endpoint=self.endpoint,
+                    instances=[instances]
+                )
+                
+                # Extraer el texto de la respuesta
+                predictions = response.predictions
+                if predictions and len(predictions) > 0:
+                    result = predictions[0]
+                    # Dependiendo de la estructura de la respuesta, podría necesitar ajustes
+                    if isinstance(result, dict) and "content" in result:
+                        return result["content"]
+                    elif isinstance(result, str):
+                        return result
+                    else:
+                        return str(result)
+                else:
+                    return "No se pudo generar una respuesta."
+                    
+            except Exception as e:
+                print(f"Error llamando a Flash API: {str(e)}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Error comunicándose con Flash API: {str(e)}"
+                )

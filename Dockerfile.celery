@@ -2,19 +2,25 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Instalar dependencias del sistema y Google Cloud
 RUN apt-get update && apt-get install -y \
     build-essential \
+    libpq-dev \
+    curl \
+    gnupg \
+    && curl -sSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - \
+    && echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && apt-get update && apt-get install -y google-cloud-sdk \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy entire project
+# Copiar proyecto
 COPY . .
 
-# Install Python dependencies
+# Instalar dependencias Python
 RUN pip install --no-cache-dir -r app/requirements.txt
 
-# Create uploads directory
-RUN mkdir -p uploads
+# Crear directorios necesarios
+RUN mkdir -p uploads vector_db
 
-# Run Celery worker
+# Ejecutar worker
 CMD ["celery", "-A", "app.services.document_processor", "worker", "--loglevel=info"]
