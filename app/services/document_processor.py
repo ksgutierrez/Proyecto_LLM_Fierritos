@@ -13,6 +13,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from google.cloud import aiplatform
 from google.oauth2 import service_account
 import time
+import logging
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class DocumentProcessor:
     @staticmethod
@@ -35,6 +40,7 @@ class DocumentProcessor:
             content_bytes = await file.read()
             buffer.write(content_bytes)
         
+        # Determinar el tipo de archivo y procesarlo
         if file.filename.endswith('.pdf'):
             content = DocumentProcessor._process_pdf(file_path)
         elif file.filename.endswith('.docx'):
@@ -42,18 +48,28 @@ class DocumentProcessor:
         elif file.filename.endswith('.md'):
             content = DocumentProcessor._process_markdown(file_path)
         elif file.filename.endswith('.txt'):
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 content = f.read()
+        else:
+            # Si el formato no está soportado explícitamente, intentar leerlo como texto
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                logger.warning(f"Formato no reconocido: {file.filename}. Intentando procesar como texto plano.")
+            except Exception as e:
+                logger.error(f"No se pudo procesar el archivo {file.filename}: {str(e)}")
+                content = f"No se pudo extraer contenido de este archivo. Error: {str(e)}"
         
-        # Generate summary using LLM
+        # Generate summary using Google Flash API
         try:
             llm_service = LLMService()
-            # Use the first 2000 characters to generate a summary
-            text_to_summarize = content[:2000]
+            # Use the first 3000 characters to generate a summary
+            text_to_summarize = content[:3000]
             summary = await llm_service.generate_summary(text_to_summarize)
+            logger.info(f"Resumen generado para documento: {file.filename}")
         except Exception as e:
-            print(f"Error generating summary: {str(e)}")
-            summary = "No summary available"
+            logger.error(f"Error generando resumen con Google Flash API: {str(e)}")
+            summary = "No se pudo generar un resumen para este documento."
                 
         # Inicia el procesamiento asíncrono para chunking y embeddings
         process_document_task.delay(file_path, content, user_id)
@@ -63,25 +79,37 @@ class DocumentProcessor:
     def _process_pdf(file_path: str) -> str:
         """Extrae texto de un archivo PDF."""
         text = ""
-        with open(file_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            for page_num, page in enumerate(pdf_reader.pages):
-                page_text = page.extract_text()
-                if page_text:
-                    text += f"[Page {page_num + 1}]\n{page_text}\n\n"
-        return text
+        try:
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                for page_num, page in enumerate(pdf_reader.pages):
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += f"[Page {page_num + 1}]\n{page_text}\n\n"
+            return text
+        except Exception as e:
+            logger.error(f"Error procesando PDF {file_path}: {str(e)}")
+            return f"Error al procesar el archivo PDF: {str(e)}"
 
     @staticmethod
     def _process_docx(file_path: str) -> str:
         """Extrae texto de un archivo DOCX."""
-        doc = docx.Document(file_path)
-        return " ".join([paragraph.text for paragraph in doc.paragraphs])
+        try:
+            doc = docx.Document(file_path)
+            return " ".join([paragraph.text for paragraph in doc.paragraphs])
+        except Exception as e:
+            logger.error(f"Error procesando DOCX {file_path}: {str(e)}")
+            return f"Error al procesar el archivo DOCX: {str(e)}"
 
     @staticmethod
     def _process_markdown(file_path: str) -> str:
         """Extrae texto de un archivo Markdown."""
-        with open(file_path, 'r', encoding='utf-8') as file:
-            return markdown.markdown(file.read())
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
+                return markdown.markdown(file.read())
+        except Exception as e:
+            logger.error(f"Error procesando Markdown {file_path}: {str(e)}")
+            return f"Error al procesar el archivo Markdown: {str(e)}"
             
     @staticmethod
     def chunk_text(text: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -118,8 +146,8 @@ class DocumentProcessor:
         
         return result
 
-@celery_app.task
-def process_document_task(file_path: str, content: str, user_id: int):
+@celery_app.task(name="process_document_task", bind=True, max_retries=3)
+def process_document_task(self, file_path: str, content: str, user_id: int):
     """
     Tarea Celery para procesar un documento en segundo plano.
     Divide el documento en chunks y genera embeddings.
@@ -130,7 +158,7 @@ def process_document_task(file_path: str, content: str, user_id: int):
         user_id: ID del usuario propietario
     """
     try:
-        print(f"Iniciando procesamiento de documento: {file_path}")
+        logger.info(f"Iniciando procesamiento de documento: {file_path}")
         file_name = os.path.basename(file_path)
         
         # Metadatos básicos
@@ -146,7 +174,6 @@ def process_document_task(file_path: str, content: str, user_id: int):
             # Procesar metadatos de página
             with open(file_path, 'rb') as file:
                 pdf_reader = PyPDF2.PdfReader(file)
-                page_texts = []
                 for page_num, page in enumerate(pdf_reader.pages):
                     page_text = page.extract_text()
                     if page_text:
@@ -161,10 +188,12 @@ def process_document_task(file_path: str, content: str, user_id: int):
             for chunk in chunks:
                 process_chunk(chunk, user_id)
                 
-        print(f"Procesamiento completado para documento: {file_path}")
+        logger.info(f"Procesamiento completado para documento: {file_path}")
         
     except Exception as e:
-        print(f"Error procesando documento: {str(e)}")
+        logger.error(f"Error procesando documento: {str(e)}")
+        # Reintentar la tarea en caso de error
+        raise self.retry(exc=e, countdown=60, max_retries=3)
 
 def process_chunk(chunk: Dict[str, Any], user_id: int):
     """
@@ -188,9 +217,11 @@ def process_chunk(chunk: Dict[str, Any], user_id: int):
             metadatas=[chunk["metadata"]],
             ids=[f"{user_id}_{chunk['metadata']['source']}_{chunk['metadata'].get('chunk_id')}"]
         )
+        logger.info(f"Chunk procesado y almacenado: {chunk['metadata'].get('chunk_id')}")
         
     except Exception as e:
-        print(f"Error procesando chunk: {str(e)}")
+        logger.error(f"Error procesando chunk: {str(e)}")
+        # No relanzar la excepción para evitar que falle todo el proceso
 
 def generate_embedding(text: str) -> List[float]:
     """
@@ -202,33 +233,45 @@ def generate_embedding(text: str) -> List[float]:
     Returns:
         Vector de embedding
     """
-    try:
-        # Configurar credenciales
-        if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-            credentials = service_account.Credentials.from_service_account_file(
-                os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-            )
-            client = aiplatform.TextEmbeddingModel(
-                model_name="textembedding-gecko@latest",
-                credentials=credentials
-            )
-        else:
-            client = aiplatform.TextEmbeddingModel(
-                model_name="textembedding-gecko@latest"
-            )
-        
-        # Generar embedding
-        embeddings = client.get_embeddings([text])
-        
-        # Obtener el resultado
-        if embeddings and embeddings[0]:
-            return embeddings[0].values
-        else:
-            # Fallback a un embedding aleatorio (solo para desarrollo)
-            print("Warning: Fallback a embedding aleatorio")
-            return list(np.random.randn(768))
+    retry_count = 0
+    max_retries = 3
+    wait_time = 2  # segundos iniciales de espera
+
+    while retry_count < max_retries:
+        try:
+            # Configurar credenciales
+            if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+                credentials = service_account.Credentials.from_service_account_file(
+                    os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+                )
+                embedding_model = aiplatform.TextEmbeddingModel.from_pretrained(
+                    "textembedding-gecko@latest",
+                    credentials=credentials
+                )
+            else:
+                embedding_model = aiplatform.TextEmbeddingModel.from_pretrained(
+                    "textembedding-gecko@latest"
+                )
             
-    except Exception as e:
-        print(f"Error generando embedding: {str(e)}")
-        # Fallback a un embedding aleatorio (solo para desarrollo)
-        return list(np.random.randn(768))
+            # Generar embedding
+            embedding_response = embedding_model.get_embeddings([text])
+            
+            # Obtener el resultado
+            if embedding_response and embedding_response[0]:
+                return embedding_response[0].values
+            
+            # Si no hay resultados, intentar nuevamente
+            logger.warning("No se recibieron embeddings. Reintentando...")
+            retry_count += 1
+            time.sleep(wait_time)
+            wait_time *= 2  # Backoff exponencial
+            
+        except Exception as e:
+            logger.error(f"Error generando embedding (intento {retry_count+1}): {str(e)}")
+            retry_count += 1
+            time.sleep(wait_time)
+            wait_time *= 2  # Backoff exponencial
+
+    # Fallback a un embedding aleatorio solo en caso de fallos persistentes
+    logger.error("Todos los intentos de generar embedding fallaron. Usando fallback.")
+    return list(np.random.randn(768))

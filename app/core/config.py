@@ -37,12 +37,6 @@ class Settings(BaseSettings):
     GCP_ZONE: str = os.getenv("GCP_ZONE", "us-central1-a")
     GCP_REGION: str = os.getenv("GCP_REGION", "us-central1")
     
-    # Keep Ollama settings for backward compatibility
-    OLLAMA_BASE_URL: Optional[str] = None
-    OLLAMA_MODEL: Optional[str] = None
-    OLLAMA_TIMEOUT: Optional[int] = None
-    OLLAMA_MAX_RETRIES: Optional[int] = None
-    OLLAMA_RETRY_DELAY: Optional[int] = None
     # Frontend Configuration
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:8001")
     

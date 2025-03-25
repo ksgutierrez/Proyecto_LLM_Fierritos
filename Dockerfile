@@ -2,25 +2,39 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Configurar variables para optimizar el contenedor
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=off \
+    PIP_DISABLE_PIP_VERSION_CHECK=on
+
 # Instalar dependencias del sistema y herramientas de Google Cloud
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
     gnupg \
     && curl -sSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - \
     && echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
-    && apt-get update && apt-get install -y google-cloud-sdk \
+    && apt-get update && apt-get install -y --no-install-recommends google-cloud-cli \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Copiar solo los archivos de requisitos primero para aprovechar el caché de Docker
+COPY app/requirements.txt .
+
+# Instalar dependencias Python
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar proyecto
 COPY . .
 
-# Instalar dependencias Python
-RUN pip install --no-cache-dir -r app/requirements.txt
-
 # Crear directorios necesarios
 RUN mkdir -p uploads vector_db
+
+# Configurar verificaciones de salud para la aplicación
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
 # Exponer puerto
 EXPOSE 8000

@@ -2,19 +2,20 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:15-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: ragsaas
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-postgres}"]
       interval: 5s
       retries: 5
+    restart: unless-stopped
       
   api:
     build:
@@ -25,6 +26,31 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}
+      - GOOGLE_LOCATION=${GOOGLE_LOCATION}
+      - GOOGLE_MODEL_ID=${GOOGLE_MODEL_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - USE_MOCK_LLM=${USE_MOCK_LLM:-false}
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+      - ./uploads:/app/uploads
+      - ./vector_db:/app/vector_db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
   celery-worker:
     build:
@@ -33,37 +59,52 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./vector_db:/app/vector_db
+      - ./credentials.json:/app/credentials.json:ro
     environment:
       - POSTGRES_SERVER=postgres
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - POSTGRES_DB=${POSTGRES_DB:-ragsaas}
-      - USE_MOCK_LLM=true
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - USE_MOCK_LLM=${USE_MOCK_LLM:-false}
+      - GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}
+      - GOOGLE_LOCATION=${GOOGLE_LOCATION}
+      - GOOGLE_MODEL_ID=${GOOGLE_MODEL_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
     depends_on:
       - postgres
       - redis
-
-  # Resto de servicios igual
-  
+    restart: unless-stopped
 
   # Redis for Celery
   redis:
-    image: redis:7
+    image: redis:7-alpine
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
-    restart: always
-    networks:
-      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
-  # Ollama for LLM
-  
+  # Frontend sencillo
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "8001:8001"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
-
-networks:
-  app-network:
-    driver: bridge

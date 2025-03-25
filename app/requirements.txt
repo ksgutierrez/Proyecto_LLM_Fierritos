@@ -1,4 +1,4 @@
-# FastAPI and server
+# FastAPI y servidor
 fastapi>=0.109.0
 uvicorn>=0.25.0
 gunicorn>=21.2.0
@@ -9,35 +9,46 @@ python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 python-dotenv>=1.0.0
 
-# Database
+# Base de datos
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.9
 alembic>=1.12.0
 
-# Document processing
+# Procesamiento de documentos
 pypdf2>=3.0.0
 python-docx>=1.0.0
 markdown>=3.5.0
 
-# Background processing
+# Procesamiento en segundo plano
 celery>=5.3.6
 redis>=5.0.0
 
-# LLM integration
+# Integración con LLMs
 langchain>=0.1.0
 langchain-community>=0.0.13
+langchain-text-splitters>=0.0.1
 
 # Frontend
 flet>=0.10.0
 
-# Authentication
+# Autenticación
 email-validator>=2.1.0
+
+# Google Cloud
+google-cloud-aiplatform>=1.36.0
+google-auth>=2.23.0
+google-cloud-storage>=2.10.0
+protobuf>=4.24.0
+
+# Base de datos vectorial
+chromadb>=0.4.18
+
+# Utilidades
+numpy>=1.22.0
+retry>=0.9.2
+requests>=2.31.0
+tenacity>=8.2.0
 
 # Testing
 pytest>=7.4.0
 httpx>=0.25.0
-
-# Añadir estas dependencias
-google-cloud-aiplatform>=1.36.0
-chromadb>=0.4.18
-langchain-text-splitters>=0.0.1
