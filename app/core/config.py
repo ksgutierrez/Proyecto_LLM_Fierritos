@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     GOOGLE_LOCATION: str = os.getenv("GOOGLE_LOCATION", "us-central1")
     GOOGLE_MODEL_ID: str = os.getenv("GOOGLE_MODEL_ID", "flash")
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    GOOGLE_EMBEDDING_MODEL: str = os.getenv("GOOGLE_EMBEDDING_MODEL", "textembedding-gecko@latest")
     
     # GCP Compute Engine
     GCP_ZONE: str = os.getenv("GCP_ZONE", "us-central1-a")
@@ -53,11 +54,16 @@ class Settings(BaseSettings):
     
     # ChromaDB settings
     CHROMADB_DIR: str = os.getenv("CHROMADB_DIR", "vector_db")
+    
+    # Development settings
+    USE_MOCK_LLM: bool = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
     class Config:
         env_file = ".env"
         env_file_encoding = 'utf-8'
 
+# This part is crucial - it creates the settings instance that is imported by other modules
 settings = Settings()
 settings.SQLALCHEMY_DATABASE_URI = (
     f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"

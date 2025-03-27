@@ -1,15 +1,12 @@
-# test_processor.py
-import asyncio
-from app.services.document_processor import DocumentProcessor
+from google.cloud import aiplatform
 
-async def test():
-    with open("test_document.pdf", "rb") as f:
-        file_content = f.read()
-    
-    from fastapi import UploadFile
-    file = UploadFile(filename="test_document.pdf", file=BytesIO(file_content))
-    content, path, summary = await DocumentProcessor.process_document(file, user_id=1)
-    print(f"Contenido extraído: {content[:100]}...")
-    print(f"Resumen: {summary}")
+# Inicializar Vertex AI
+aiplatform.init(
+    project="neon-chimera-454920-c1",
+    location="us-east1",
+    credentials="credentials.json",
+)
 
-asyncio.run(test())
+# Probar el modelo de incrustación
+response = aiplatform.TextEmbeddingModel.from_pretrained("textembedding-gecko@latest").get_embeddings(["Hola, mundo!"])
+print(response)
